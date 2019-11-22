@@ -1,76 +1,78 @@
 package fxlex
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"unicode"
 )
 
-type Token struct {
-	lexeme  string
-	tokType TokType
-	value   int64
-}
-
-type TokType int
-
 const (
-	RuneEOF         = 0
-	TokKey  TokType = iota
-	TokId
+	RuneEOF = unicode.MaxRune + 1 + iota
+	TokKey
+	TokID
 	TokFunc
 
 	// Basic Types
-	TokInt
 	TokIntLit
-	TokBool
 	TokBoolLit
-	TokCoord
 
 	// Punctuation tokens
-	TokLPar     TokType = '('
-	TokRPar     TokType = ')'
-	TokLCurl    TokType = '{'
-	TokRCurl    TokType = '}'
-	TokLSquare  TokType = '['
-	TokRSquare  TokType = ']'
-	TokComma    TokType = ','
-	TokDot      TokType = '.'
-	Semicolon   TokType = ';'
-	Assignation TokType = '='
-	Declaration TokType = iota
+	Declaration
 
 	// Int operators
-	TokPlus   TokType = '+'
-	TokMinus  TokType = '-'
-	TokTimes  TokType = '*'
-	TokDivide TokType = '/'
-	TokRem    TokType = '%'
-	TokGT     TokType = '>'
-	TokLT     TokType = '<'
-	TokPow    TokType = iota
+	TokPow
 	TokGTE
 	TokLTE
+)
+
+const (
+	// Punctuation tokens
+	TokLPar     = '('
+	TokRPar     = ')'
+	TokLCurl    = '{'
+	TokRCurl    = '}'
+	TokLSquare  = '['
+	TokRSquare  = ']'
+	TokComma    = ','
+	TokDot      = '.'
+	Semicolon   = ';'
+	Assignation = '='
+
+	// Int operators
+	TokPlus   = '+'
+	TokMinus  = '-'
+	TokTimes  = '*'
+	TokDivide = '/'
+	TokRem    = '%'
+	TokGT     = '>'
+	TokLT     = '<'
 
 	// Bool operators
-	TokOr  TokType = '|'
-	TokAnd TokType = '&'
-	TokNeg TokType = '!'
-	TokXor TokType = '^'
+	TokOr  = '|'
+	TokAnd = '&'
+	TokNeg = '!'
+	TokXor = '^'
+
+	TokEOF = RuneEOF
 )
+
+type tokType int
 
 type RuneScanner interface {
 	ReadRune() (r rune, size int, err error)
 	UnreadRune() error
 }
 
+type Token struct {
+	lexeme  string
+	tokType int
+	value   int64
+}
+
 type Lexer struct {
 	file     string
-	fd       *os.File
 	line     int
 	rs       RuneScanner
 	lastrune rune
@@ -79,13 +81,11 @@ type Lexer struct {
 	tokSaved *Token
 }
 
-func newLexer(file string) (l *Lexer, err error) {
-	fd, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
+func NewLexer(rs RuneScanner, file string) (l *Lexer, err error) {
+	l = &Lexer{line: 1}
+	l.file = file
+	l.rs = rs
 
-	l = &Lexer{file: file, fd: fd, line: 1, rs: bufio.NewReader(fd)}
 	return l, nil
 }
 
@@ -115,16 +115,18 @@ func (l *Lexer) get() (r rune) {
 }
 
 func (l *Lexer) unget() {
+	var err error
 	if l.lastrune == RuneEOF {
 		return
 	}
 
-	err := l.rs.UnreadRune()
+	err = l.rs.UnreadRune()
 	if err == nil && l.lastrune == '\n' {
 		l.line--
 	}
 
 	l.lastrune = unicode.ReplacementChar
+
 	if len(l.accepted) != 0 {
 		l.accepted = l.accepted[0 : len(l.accepted)-1]
 	}
@@ -176,19 +178,18 @@ func (l *Lexer) Lex() (t Token, err error) {
 				t.tokType = Declaration
 				t.lexeme = l.accept()
 				return t, nil
-			} else {
-				return t, errors.New("bad declaration token")
 			}
+			return t, errors.New("bad declaration token")
 
 		// Punctuation tokens
 		case '(', ')', '{', '}', '[', ']', ',', '.', ';', '=':
-			t.tokType = TokType(r)
+			t.tokType = int(r)
 			t.lexeme = l.accept()
 			return t, nil
 
 		// Int operators
 		case '+', '-', '*', '/', '%', '>', '<':
-			t.tokType = TokType(r)
+			t.tokType = int(r)
 
 			if l.get() == '/' && r == '/' {
 				l.skipComment()
@@ -220,19 +221,15 @@ func (l *Lexer) Lex() (t Token, err error) {
 
 		// Bool operators
 		case '|', '&', '!', '^':
-			t.tokType = TokType(r)
+			t.tokType = int(r)
 			t.lexeme = l.accept()
 			return t, nil
 
 		// EOF
 		case RuneEOF:
-			err := l.fd.Close()
-			if err != nil {
-				panic(err)
-			}
-
+			t.tokType = TokEOF
 			l.accept()
-			return t, io.EOF
+			return t, nil
 		}
 
 		switch {
@@ -240,16 +237,15 @@ func (l *Lexer) Lex() (t Token, err error) {
 			l.unget()
 			t, err = l.lexNum()
 			return t, err
+
 		case unicode.IsLetter(r):
 			l.unget()
-			t, err = l.lexId()
+			t, err = l.lexID()
 
 			isKeyword := func(lexeme string) bool {
 				keywords := map[string]bool{
 					"type":   true,
 					"record": true,
-					"circle": true,
-					"rect":   true,
 					"iter":   true,
 					"if":     true,
 					"else":   true,
@@ -261,18 +257,6 @@ func (l *Lexer) Lex() (t Token, err error) {
 			if err == nil {
 				if isKeyword(t.lexeme) {
 					t.tokType = TokKey
-				}
-
-				if t.lexeme == "int" {
-					t.tokType = TokInt
-				}
-
-				if t.lexeme == "bool" {
-					t.tokType = TokBool
-				}
-
-				if t.lexeme == "Coord" {
-					t.tokType = TokCoord
 				}
 
 				if t.lexeme == "func" {
@@ -289,15 +273,13 @@ func (l *Lexer) Lex() (t Token, err error) {
 					t.value = 0
 				}
 			}
-
 			return t, err
+
 		default:
 			errs := fmt.Sprintf("bad rune %c: %x", r, r)
 			return t, errors.New(errs)
 		}
 	}
-
-	return t, err
 }
 
 func (l *Lexer) lexNum() (t Token, err error) {
@@ -336,7 +318,7 @@ func (l *Lexer) lexNum() (t Token, err error) {
 	return t, nil
 }
 
-func (l *Lexer) lexId() (t Token, err error) {
+func (l *Lexer) lexID() (t Token, err error) {
 	r := l.get()
 
 	if !unicode.IsLetter(r) {
@@ -351,7 +333,7 @@ func (l *Lexer) lexId() (t Token, err error) {
 	}
 	l.unget()
 
-	t.tokType = TokId
+	t.tokType = TokID
 	t.lexeme = l.accept()
 	return t, nil
 }
@@ -361,7 +343,6 @@ func (l *Lexer) Peek() (t Token, err error) {
 	if err == nil {
 		l.tokSaved = &t
 	}
-
 	return t, nil
 }
 
@@ -371,4 +352,20 @@ func (l *Lexer) GetFilename() string {
 
 func (l *Lexer) GetLineNumber() int {
 	return l.line
+}
+
+func (t Token) String() string {
+	return fmt.Sprintf("{\"%s\",%s,%d}", t.lexeme, tokType(t.tokType), t.value)
+}
+
+func (t Token) GetLexeme() string {
+	return t.lexeme
+}
+
+func (t Token) GetTokType() int {
+	return t.tokType
+}
+
+func (t Token) GetValue() int64 {
+	return t.value
 }
