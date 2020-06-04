@@ -348,6 +348,28 @@ var tokensFile = []testToken{
 	{"}", TokRCurl, 0},
 }
 
+var example2 = `//macro entry
+func main(){
+	vector v;
+	Coord pp;
+
+	v.x = 3;
+	v.y = 8;
+	v.z := 2;
+	pp = [4,45];
+	if(v.x > 3 | True) {		// (v.x>3)|True
+		circle(pp, 0x3, 0x1100001f);
+	} else {
+		line(v);
+		line(v);
+	}
+	line(v);
+	line(v);
+	iter (i := 0, 3, 1){		//loops 0 1 2 3
+		rect(pp, α, 0xff);
+	}
+}`
+
 func newTestLexer(t *testing.T, text string) (l *Lexer) {
 	reader := bufio.NewReader(strings.NewReader(text))
 	l, err := NewLexer(reader, "test")
@@ -455,4 +477,24 @@ func TestPeek(t *testing.T) {
 			j++
 		}
 	}
+}
+
+func TestSkipUntilAndLex(t *testing.T) {
+	l := newTestLexer(t, example2)
+	DebugLexer = true
+	l.Lex()
+	l.SkipUntilAndLex(Semicolon)
+	l.Lex()
+	l.Lex()
+	l.Lex()
+}
+
+func TestSkipUntil(t *testing.T) {
+	l := newTestLexer(t, example2)
+	DebugLexer = true
+	l.Lex()
+	l.SkipUntil(Semicolon, TokRPar)
+	l.Lex()
+	l.Lex()
+	l.Lex()
 }

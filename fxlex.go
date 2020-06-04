@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"unicode"
 )
+
+var DebugLexer bool = false
 
 const (
 	RuneEOF = unicode.MaxRune + 1 + iota
@@ -158,7 +161,68 @@ func (l *Lexer) skipComment() {
 	l.accept()
 }
 
+// SkipUntilAndLex skips all the tokens it finds until one appears with
+// a type equal to one of those defined in the variable tTs or until
+// the end of the file is reached (the matching token is also skipped).
+func (l *Lexer) SkipUntilAndLex(tTs ...int) error {
+	isOver := func(tok Token) bool {
+		for _, tT := range tTs {
+			if tok.GetTokType() == tT {
+				return true
+			}
+		}
+
+		if tok.GetTokType() == TokEOF {
+			return true
+		}
+
+		return false
+	}
+
+	for t, err := l.Lex(); !isOver(t); t, err = l.Lex() {
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// SkipUntil skips all the tokens it finds until one appears with
+// a type equal to one of those defined in the variable tTs or until
+// the end of the file is reached (the matching token is not skipped).
+func (l *Lexer) SkipUntil(tTs ...int) error {
+	isOver := func(tok Token) bool {
+		for _, tT := range tTs {
+			if tok.GetTokType() == tT {
+				return true
+			}
+		}
+
+		if tok.GetTokType() == TokEOF {
+			return true
+		}
+
+		return false
+	}
+
+	for t, err := l.Peek(); !isOver(t); t, err = l.Peek() {
+		if err != nil {
+			return err
+		}
+		_, _ = l.Lex()
+	}
+
+	return nil
+}
+
 func (l *Lexer) Lex() (t Token, err error) {
+	defer func() {
+		if DebugLexer {
+			fmt.Fprintf(os.Stderr, "Lex: %s\n", t)
+		}
+	}()
+
 	if l.tokSaved != nil {
 		t = *l.tokSaved
 		l.tokSaved = nil
@@ -179,6 +243,10 @@ func (l *Lexer) Lex() (t Token, err error) {
 				t.lexeme = l.accept()
 				return t, nil
 			}
+
+			l.unget()
+			l.accept()
+
 			return t, errors.New("bad declaration token")
 
 		// Punctuation tokens
