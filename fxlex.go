@@ -434,6 +434,10 @@ func (t Token) GetTokType() int {
 	return t.tokType
 }
 
+func (t Token) GetType() string {
+	return tokType(t.tokType).String()
+}
+
 func (t Token) GetValue() int64 {
 	return t.value
 }
